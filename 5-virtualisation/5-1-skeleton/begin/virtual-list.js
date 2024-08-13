@@ -75,6 +75,10 @@ export class VirtualList {
     constructor(root, props) {
         this.props = {...props};
         this.root = root;
+        this.start = 0;
+        this.end = 0;
+        this.limit = props.pageSize * 2;
+        this.pool = [];
     }
 
     /**
@@ -90,13 +94,24 @@ export class VirtualList {
          * Part 1 - App Skeleton
          *  @todo
          */
-        return ``.trim();
+        return `<div id="container">
+            <div id="top-observer">Top Observer</div>
+            <div id="virtual-list"></div>
+            <div id="bottom-observer">Bottom Observer</div>
+        </div>`.trim();
     }
 
     /**
      * @returns void
      */
     #effect() {
+        intersectionObserver(
+            getObservers(),
+            (enteries) => this.#handleIntersectionObserver(enteries),
+            {
+                threshold: 0.2
+            }
+        )
     }
 
     /**
@@ -111,11 +126,56 @@ export class VirtualList {
      * Handles observer intersection entries
      * @param entries {IntersectionObserverEntry[]}
      */
-    #handleIntersectionObserver(entries) {}
+    #handleIntersectionObserver(entries) {
+        for(const entry of entries) {
+            if (entry.isIntersecting) {
+                if (entry.target.id === "top-observer" && this.start > 0) {
+                    void this.#handleTopObserver();
+                } else if (entry.target.id === "bottom-observer") {
+                    void this.#handleBottomObserver();
+                }
+            }
+        }
+    }
 
-    async #handleBottomObserver() {}
+    async #handleBottomObserver() {
+        const data = await this.props.getPage(this.end++);
+        const container = getContainer();
+        if (this.pool.length < this.limit) {
+            const fragment = new DocumentFragment();
+            const list = getVirtualList();
+            for (const dataum of data) {
+                const card = this.props.getTemplate(dataum);
+                fragment.appendChild(card);
+                this.pool.push(card);
+            }
 
-    async #handleTopObserver() {}
+            list.appendChild(fragment);
+        } else {
+            const [toRecycle, unchanged] = [
+                this.pool.slice(0, this.props.pageSize),
+                this.pool.slice(this.props.pageSize)
+            ];
+            this.pool = unchanged.concat(toRecycle);
+            this.#updateData(toRecycle, data);
+            this.start++;
+        }
+        this.#updateElementsPosition("down");
+        container.style.height = `${container.scrollHeight}px`
+    }
+
+    async #handleTopObserver() {
+        this.start--;
+        this.end--;
+        const data = await this.props.getPage(this.start);
+        const [unchanged, toRecycle] = [
+            this.pool.slice(0, this.props.pageSize),
+            this.pool.slice(this.props.pageSize)
+        ];
+        this.pool = toRecycle.concat(unchanged);
+        this.#updateData(toRecycle, data);
+        this.#updateElementsPosition("top");
+    }
 
     /**
      * Function uses `props.getTemplate` to update the html elements
@@ -125,7 +185,9 @@ export class VirtualList {
      * @param data {T[]} - Data to use for update
      */
     #updateData(elements, data) {
-
+        for (let i = 0; i < data.length; i++) {
+            this.props.updateTemplate(data[i], elements[i]);
+        }
     }
 
     /**
@@ -136,9 +198,32 @@ export class VirtualList {
     #updateElementsPosition(direction) {
         const [top, bottom] = getObservers();
         if (direction === 'down') {
+            for (let i = 0; i < this.pool.length; i++) {
+                const [prev, current] = [this.pool.at(i - 1), this.pool[i]];
 
+                if (y(prev) == null) {
+                    y(current, 0);
+                } else {
+                    const newY = y(prev) + MARGIN * 2 + prev.getBoundingClientRect().height;
+                    y(current, newY);
+                    current.style.transform = translateY(newY);
+                }
+            }
         } else if (direction === 'top') {
-            // To implement
+            for (let i = this.props.pageSize - 1; i >= 0; i--) {
+                const [current, next] = [this.pool[i], this.pool.at(i + 1)];
+
+                const newY = y(next) - MARGIN * 2 - current.getBoundingClientRect().height;
+                y(current, newY);
+                current.style.transform = translateY(newY);
+            }
         }
+
+        const [first, last] = [this.pool[0], this.pool.at(-1)];
+        const topY = y(first);
+        const bottomY = y(last) + MARGIN * 2 + last.getBoundingClientRect().height;
+        top.style.transform = translateY(topY);
+        bottom.style.transform = translateY(bottomY);
+
     }
 }
