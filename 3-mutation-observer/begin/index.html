@@ -9,7 +9,7 @@
             <h3 class="card__title"></h3>
             <div class="card__body">
                 <div class='card__body__image'></div>
-                <section class='card__body__content'>
+                <section class='card__body__content' contenteditable="true">
                 </section>
             </div>
         </article>
@@ -39,7 +39,16 @@
     const list = document.getElementById('list');
     const observerElement = document.getElementById('bottom-observer');
 
-    const mutationObserver = new MutationObserver((_) => {
+    const mutationObserver = new MutationObserver((entries) => {
+
+        for(const mut of entries) {
+            const target = mut.target;
+            if (mut.type === "characterData" && SUPPORTED_ELEMENTS.has(target.textContent)) {
+                const heading = getHeading(target);
+                target.replaceWith(heading);
+                heading.focus();
+            }
+        }
         /*
          * @todo
          *
@@ -60,7 +69,7 @@
             data.forEach(({title, body}) => {
                 const card = createCardElement(title, body);
                 fragment.appendChild(card);
-                // @todo register observer
+                mutationObserver.observe(card, {subtree: true, characterData: true});
             });
 
             list.appendChild(fragment);
